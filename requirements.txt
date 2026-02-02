@@ -1,7 +1,22 @@
-langgraph
-langchain
-langchain-openai
-langchain-community
-tavily-python
-pydantic
-python-dotenv
+# Core Dependencies
+langchain>=0.1.0
+langchain-google-genai>=0.0.5
+langchain-core>=0.1.0
+
+# Pydantic for data validation
+pydantic>=2.0.0
+
+# Web Search
+tavily-python>=0.3.0
+
+# Google Calendar
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.0.0
+google-auth-httplib2>=0.1.0
+pytz>=2023.3
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Type hints
+typing-extensions>=4.8.0
