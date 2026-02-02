@@ -71,32 +71,45 @@ class AtomicTaskPlanner:
         print("[A1] GOAL CLARIFIER - Thu thập thông tin sinh học")
         print("="*60)
         
+        # Reset agent for new conversation
+        self.agent_a1.reset()
+        
         bio_context = {}
         conversation_complete = False
         
         while not conversation_complete:
             result = self.agent_a1.chat(user_request, bio_context)
             
+            # IMPORTANT: Update bio_context with collected info from this turn
+            bio_context = result['collected_info']
+            
             print(f"\n🤖 Coach: {result['response']}")
             
             if result['context_complete']:
                 conversation_complete = True
                 print("\n✅ Đã thu thập đủ thông tin!")
+                break
             else:
                 user_request = input("\n👤 Bạn: ").strip()
                 if not user_request:
-                    break
+                    print("❌ Đã hủy.")
+                    return
         
         # Generate final goal specification
-        if not bio_context:
+        if not bio_context or ('goal' not in bio_context and 'goals' not in bio_context):
             print("❌ Không có đủ thông tin. Vui lòng bắt đầu lại.")
             return
         
         print("\nĐang tạo mục tiêu SMART...")
         a1_output = self.agent_a1.generate_goal_spec(user_request, bio_context)
         
-        print(f"\n📌 Mục tiêu đã làm rõ:")
-        print(f"   {a1_output.clarified_goal}")
+        # Display results
+        goals_list = bio_context.get('goals', [])
+        if len(goals_list) > 1:
+            print(f"\n📌 Đã làm rõ {len(goals_list)} mục tiêu:")
+            for i, goal in enumerate(goals_list, 1):
+                print(f"   {i}. {goal}")
+        print(f"\n🎯 Mục tiêu SMART: {a1_output.clarified_goal}")
         print(f"\n🧬 Chronotype: {a1_output.user_bio_profile.chronotype}")
         print(f"⏰ Peak hours: {', '.join(a1_output.user_bio_profile.peak_hours)}")
         print(f"⚡ Energy: {a1_output.user_bio_profile.energy_tomorrow}")

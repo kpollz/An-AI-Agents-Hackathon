@@ -1,135 +1,281 @@
+"""
+Agent A1: Goal Clarifier
+Bước 1: Break multiple goals from user input
+Bước 2: Clarify each goal (deadline, duration, energy)
+"""
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from schemas.agent1_output import GoalClarifierOutput, UserBioProfile
 
+
 class GoalClarifierAgent:
     """
     Agent A1: Goal Clarifier
-    Collects detailed biological and contextual information from user
+    Two-phase process:
+    1. Break: Extract multiple goals from user input
+    2. Clarify: Get deadline, duration, energy for each goal
     """
     
     def __init__(self, model: str = "gemini-2.5-flash-lite"):
-        """
-        Initialize Goal Clarifier Agent
-        
-        Args:
-            model: Gemini model to use (default: gemini-2.5-flash-lite)
-        """
         self.llm = ChatGoogleGenerativeAI(
             model=model,
             temperature=0.7,
-            api_key=os.getenv("GOOGLE_API_KEY")  # Will read from GOOGLE_API_KEY env var
+            api_key=os.getenv("GOOGLE_API_KEY")
         )
         
-        self.system_prompt = """You are a friendly, patient coach helping someone who tends to procrastinate.
-Your task is to gather detailed information about their goal and biological context.
+        # Phase 1: Break goals
+        self.break_prompt = """You are a goal analyzer. Extract ALL distinct goals/tasks from the user's message.
 
-INFORMATION TO COLLECT:
-1. Mục tiêu cụ thể (SMART format): What exactly do they want to achieve?
-2. Deadline hoặc khung thời gian cứng: When do they need to complete it?
-3. Chronotype:
-   - Morning Lark (dậy sớm, làm việc tốt buổi sáng)
-   - Night Owl (tỉnh thức tối, làm việc tốt buổi tối)
-   - Intermediate (nằm ở giữa)
-4. Giờ ngủ/thức dậy thường lệ
-5. Meal timing: Ăn sáng/trưa/tối thường lúc mấy giờ?
-6. Peak hours: Giờ nào trong ngày họ tỉnh táo nhất?
-7. Slump hours: Giờ nào họ buồn ngủ/mệt nhất?
-8. Fixed commitments: Có họp/công việc cố định nào ngày mai không?
-9. Energy level tomorrow: high/medium/low?
-10. Physical constraints: Có đau nhức, bệnh tật gì không?
+RULES:
+1. If user mentions multiple activities, break them into separate goals
+2. Each goal should be specific and actionable
+3. Return as a list of goal descriptions
 
-CONVERSATION RULES:
-- Chỉ hỏi 1-2 câu mỗi lượt để không overwhelm user
-- Nếu user trả lời mơ hồ, hỏi lại theo cách cụ thể hơn
-- Nếu user không biết chronotype, gợi ý họ làm bài test online hoặc default là "intermediate"
-- Khi đủ thông tin, kết thúc bằng câu: "Mình đã hiểu rõ. Để mình nghiên cứu cách tối ưu nhất cho bạn nhé!"
+Examples:
+User: "Tôi muốn viết báo cáo và chạy bộ"
+→ Goals: ["Viết báo cáo", "Chạy bộ"]
 
-IMPORTANT: Bạn KHÔNG ĐƯỢC đưa ra kế hoạch ngay lập tức. Phải hỏi đủ thông tin trước."""
+User: "Mai tôi cần học bài và đi siêu thị mua đồ"
+→ Goals: ["Học bài", "Đi siêu thị mua đồ"]
+
+User: "Tôi muốn hoàn thiện báo cáo kỹ thuật về Open Vocabulary Object Detection đồng thờ
+i thì làm xong cũng muốn chạy bộ một chút"
+→ Goals: ["Hoàn thiện báo cáo kỹ thuật về Open Vocabulary Object Detection", "Chạy bộ"]"""
+
+        # Phase 2: Clarify each goal
+        self.clarify_prompt = """You are a friendly coach helping clarify a specific goal.
+
+YOUR JOB for this goal:
+1. Understand WHAT needs to be done
+2. Understand WHEN (deadline)
+3. Understand HOW LONG (estimated duration)
+4. Understand user's ENERGY LEVEL
+
+RULES:
+- Ask only 1-2 questions per turn
+- If the goal is vague, help make it specific
+- Once you have: deadline + duration + energy, confirm completion
+- Vietnamese responses only"""
         
         self.conversation_history = []
+        self.goals_list: List[str] = []  # Multiple goals
+        self.current_goal_idx: int = 0   # Which goal we're clarifying
+        self.collected_info: Dict[str, Any] = {}  # Info for current goal
+        self.all_goals_info: List[Dict] = []  # Info for all goals
+    
+    def _break_goals(self, user_input: str) -> List[str]:
+        """Phase 1: Break user input into multiple goals"""
+        from pydantic import BaseModel, Field
+        from typing import List as TypingList
+        
+        class GoalsList(BaseModel):
+            goals: TypingList[str] = Field(description="List of distinct goals from user input")
+        
+        try:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", self.break_prompt),
+                ("human", f"User input: {user_input}\n\nExtract all goals as a list.")
+            ])
+            
+            chain = prompt | self.llm.with_structured_output(GoalsList)
+            result = chain.invoke({})
+            
+            print(f"DEBUG: Broken goals: {result.goals}")
+            return result.goals if result.goals else [user_input]
+            
+        except Exception as e:
+            print(f"DEBUG: Break goals error: {e}")
+            # Fallback: treat entire input as single goal
+            return [user_input]
+    
+    def _extract_info(self, user_input: str) -> Dict[str, Any]:
+        """Extract clarification info for current goal"""
+        from pydantic import BaseModel, Field
+        from typing import Optional as TypingOptional
+        
+        class ExtractedInfo(BaseModel):
+            deadline: TypingOptional[str] = Field(None, description="When it needs to be done")
+            estimated_duration: TypingOptional[str] = Field(None, description="Estimated time")
+            energy_level: TypingOptional[str] = Field(None, description="high/medium/low")
+            
+        extraction_prompt = f"""Current goal: "{self.goals_list[self.current_goal_idx] if self.goals_list else 'Unknown'}"
+
+Extract deadline, duration, and energy level from this user message.
+If user mentions "mai", "ngày mai", "tomorrow" → deadline = "tomorrow"
+If user mentions "chiều mai", "sáng mai" → include time of day.
+
+User message: "{user_input}"""
+        
+        try:
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", "Extract structured information. Be precise."),
+                ("human", extraction_prompt)
+            ])
+            
+            chain = prompt | self.llm.with_structured_output(ExtractedInfo)
+            result = chain.invoke({})
+            
+            return {k: v for k, v in result.dict().items() if v is not None}
+        except Exception as e:
+            print(f"DEBUG: Extraction error: {e}")
+            return {}
     
     def chat(self, user_input: str, context: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Handle multi-turn conversation with user
-        
-        Args:
-            user_input: User's message
-            context: Current conversation context (collected info so far)
-        
-        Returns:
-            Dict containing:
-            - response: Agent's response message
-            - context_complete: Boolean indicating if all info collected
-            - collected_info: Dict of information collected so far
+        Handle conversation with user
+        Phase 1: Break goals (first turn)
+        Phase 2: Clarify each goal
         """
-        if context is None:
-            context = {}
+        # Initialize or merge context
+        if context:
+            self.collected_info.update(context)
         
-        # Add user input to history
         self.conversation_history.append({"role": "user", "content": user_input})
         
-        # Build prompt with current context
-        context_str = self._format_context(context)
+        # PHASE 1: First turn - Break goals
+        if not self.goals_list:
+            self.goals_list = self._break_goals(user_input)
+            self.current_goal_idx = 0
+            
+            if len(self.goals_list) > 1:
+                response = f"Tuyệt vợi! Mình thấy bạn có {len(self.goals_list)} mục tiêu:\n"
+                for i, goal in enumerate(self.goals_list, 1):
+                    response += f"  {i}. {goal}\n"
+                response += f"\nHãy cùng làm rõ từng mục tiêu nhé! "
+                response += f"Bắt đầu với mục tiêu 1: **{self.goals_list[0]}**\n\n"
+                response += "Bạn dự định hoàn thành vào **khi nào** và mất khoảng **bao lâu**?"
+            else:
+                response = f"Tuyệt vợi! Bạn muốn: **{self.goals_list[0]}**\n\n"
+                response += "Bạn dự định hoàn thành vào **khi nào** và mất khoảng **bao lâu**?"
+            
+            self.conversation_history.append({"role": "assistant", "content": response})
+            
+            return {
+                "response": response,
+                "context_complete": False,
+                "collected_info": {"goals": self.goals_list}
+            }
+        
+        # PHASE 2: Clarify current goal
+        extracted = self._extract_info(user_input)
+        if extracted:
+            self.collected_info.update(extracted)
+            print(f"DEBUG: Extracted for goal {self.current_goal_idx + 1}: {extracted}")
+        
+        # Check if current goal is complete
+        has_deadline = "deadline" in self.collected_info and self.collected_info["deadline"]
+        has_duration = "estimated_duration" in self.collected_info and self.collected_info["estimated_duration"]
+        
+        current_goal_complete = has_deadline  # Minimum: need deadline
+        
+        print(f"DEBUG: Goal {self.current_goal_idx + 1}/{len(self.goals_list)} complete: {current_goal_complete}")
+        
+        if current_goal_complete:
+            # Save current goal info
+            goal_info = {
+                "goal": self.goals_list[self.current_goal_idx],
+                "deadline": self.collected_info.get("deadline", ""),
+                "estimated_duration": self.collected_info.get("estimated_duration", ""),
+                "energy_level": self.collected_info.get("energy_level", "medium")
+            }
+            self.all_goals_info.append(goal_info)
+            
+            # Move to next goal
+            self.current_goal_idx += 1
+            self.collected_info = {}  # Reset for next goal
+            
+            # Check if all goals done
+            if self.current_goal_idx >= len(self.goals_list):
+                # All goals clarified
+                response = "Mình đã hiểu rõ. Để mình nghiên cứu cách tối ưu nhất cho bạn nhé!"
+                self.conversation_history.append({"role": "assistant", "content": response})
+                
+                return {
+                    "response": response,
+                    "context_complete": True,
+                    "collected_info": {
+                        "goals": self.goals_list,
+                        "all_goals_info": self.all_goals_info
+                    }
+                }
+            else:
+                # Next goal
+                response = f"Tiếp theo, hãy làm rõ mục tiêu {self.current_goal_idx + 1}: **{self.goals_list[self.current_goal_idx]}**\n\n"
+                response += "Bạn dự định hoàn thành vào **khi nào**?"
+                self.conversation_history.append({"role": "assistant", "content": response})
+                
+                return {
+                    "response": response,
+                    "context_complete": False,
+                    "collected_info": {"goals": self.goals_list, "current_idx": self.current_goal_idx}
+                }
+        
+        # Still need more info for current goal
+        missing = []
+        if not has_deadline:
+            missing.append("deadline (khi nào)")
+        if not has_duration:
+            missing.append("thờ gian dự kiến")
+        
+        context_str = f"Mục tiêu hiện tại: {self.goals_list[self.current_goal_idx]}\n"
+        context_str += f"Đã có: {self.collected_info}\n"
+        context_str += f"Còn thiếu: {', '.join(missing)}"
         
         prompt = ChatPromptTemplate.from_messages([
-            ("system", self.system_prompt),
-            ("human", """Context đã thu thập:
-{context}
-
-User nói: {input}
-
-Hãy trả lời người dùng. Nếu cần thêm thông tin, hãy hỏi. Nếu đã đủ, hãy thông báo.""")
+            ("system", self.clarify_prompt),
+            ("human", f"{context_str}\n\nUser vừa nói: {user_input}\n\nHỏi ngắn gọn về thông tin còn thiếu.")
         ])
         
-        # Generate response
         chain = prompt | self.llm
-        response = chain.invoke({
-            "context": context_str,
-            "input": user_input
-        })
-        
+        response = chain.invoke({})
         response_text = response.content
         
-        # Add response to history
         self.conversation_history.append({"role": "assistant", "content": response_text})
-        
-        # Check if conversation is complete
-        is_complete = self._check_conversation_complete(context, response_text)
         
         return {
             "response": response_text,
-            "context_complete": is_complete,
-            "collected_info": context
+            "context_complete": False,
+            "collected_info": self.collected_info.copy()
         }
     
     def generate_goal_spec(self, user_request: str, bio_context: Dict) -> GoalClarifierOutput:
-        """
-        Generate final goal specification from collected information
+        """Generate final goal specification for all goals"""
         
-        Args:
-            user_request: Original user request
-            bio_context: Collected biological context
+        # Get all goals info
+        all_goals_info = bio_context.get("all_goals_info", [])
+        goals_list = bio_context.get("goals", [])
         
-        Returns:
-            GoalClarifierOutput object
-        """
+        if not all_goals_info and goals_list:
+            # Fallback: create from goals list
+            all_goals_info = [{"goal": g, "deadline": "tomorrow", "estimated_duration": "1 hour", "energy_level": "medium"} for g in goals_list]
+        
+        # Combine all goals into one description
+        if len(all_goals_info) == 1:
+            combined_goal = all_goals_info[0]["goal"]
+            main_deadline = all_goals_info[0].get("deadline", "tomorrow")
+            main_energy = all_goals_info[0].get("energy_level", "medium")
+        else:
+            goal_descriptions = [f"{i+1}. {g['goal']}" for i, g in enumerate(all_goals_info)]
+            combined_goal = "Hoàn thành các mục tiêu: " + "; ".join([g['goal'] for g in all_goals_info])
+            main_deadline = all_goals_info[0].get("deadline", "tomorrow")
+            main_energy = all_goals_info[0].get("energy_level", "medium")
+        
+        # Generate SMART goal
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert at goal setting and SMART goal formulation.
-Convert the user's vague goal into a SMART goal (Specific, Measurable, Achievable, Relevant, Time-bound).
-
-Return ONLY the JSON output, no additional text."""),
-            ("human", """User Request: {request}
-
-Biological Context:
-{bio_context}
-
-Generate a SMART goal and structure the bio context properly.""")
+            ("system", "Convert goals into a SMART goal. Be concise."),
+            ("human", f"Goals: {combined_goal}\nDeadline: {main_deadline}\nEnergy: {main_energy}")
         ])
         
-        # Parse bio context
+        try:
+            chain = prompt | self.llm
+            result = chain.invoke({})
+            clarified_goal = result.content.strip()
+        except:
+            clarified_goal = combined_goal
+        
+        # Create bio profile with defaults
         bio_profile = UserBioProfile(
             chronotype=bio_context.get("chronotype", "intermediate"),
             sleep_time=bio_context.get("sleep_time", "23:00"),
@@ -142,54 +288,20 @@ Generate a SMART goal and structure the bio context properly.""")
             peak_hours=bio_context.get("peak_hours", ["09:00-11:00", "15:00-17:00"]),
             slump_hours=bio_context.get("slump_hours", []),
             fixed_commitments=bio_context.get("fixed_commitments", []),
-            energy_tomorrow=bio_context.get("energy_tomorrow", "medium"),
+            energy_tomorrow=main_energy,
             physical_constraints=bio_context.get("physical_constraints", [])
         )
         
-        # Use structured output
-        from langchain_core.pydantic_v1 import BaseModel
-        from pydantic import Field
-        
-        class SmartGoal(BaseModel):
-            clarified_goal: str = Field(description="SMART format goal")
-        
-        chain = prompt | self.llm.with_structured_output(SmartGoal)
-        result = chain.invoke({
-            "request": user_request,
-            "bio_context": bio_profile.dict()
-        })
-        
         return GoalClarifierOutput(
-            clarified_goal=result.clarified_goal,
+            clarified_goal=clarified_goal,
             user_bio_profile=bio_profile,
             conversation_complete=True
         )
     
-    def _format_context(self, context: Dict) -> str:
-        """Format context for display"""
-        if not context:
-            return "Chưa có thông tin"
-        
-        lines = []
-        for key, value in context.items():
-            lines.append(f"- {key}: {value}")
-        return "\n".join(lines)
-    
-    def _check_conversation_complete(self, context: Dict, response: str) -> bool:
-        """Check if all required information is collected"""
-        required_fields = [
-            "chronotype",
-            "sleep_time",
-            "wake_time",
-            "peak_hours",
-            "energy_tomorrow"
-        ]
-        
-        has_all_fields = all(field in context for field in required_fields)
-        has_completion_phrase = "đã hiểu rõ" in response.lower() or "nghiên cứu" in response.lower()
-        
-        return has_all_fields and has_completion_phrase
-    
-    def reset_conversation(self):
-        """Reset conversation history"""
+    def reset(self):
+        """Reset for new conversation"""
         self.conversation_history = []
+        self.goals_list = []
+        self.current_goal_idx = 0
+        self.collected_info = {}
+        self.all_goals_info = []

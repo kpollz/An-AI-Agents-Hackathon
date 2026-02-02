@@ -5,9 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from schemas.agent2_output import (
     DomainResearcherOutput,
     Task,
-    TaskEvidence,
-    ProTip,
-    TipEvidence
+    ProTip
 )
 from utils.web_search import WebSearchTool, MockWebSearchTool
 
@@ -185,7 +183,7 @@ If search results are limited, use general best practices but note it.""")
         ])
         
         # Use structured output
-        from langchain_core.pydantic_v1 import BaseModel
+        from pydantic import BaseModel
         from pydantic import Field
         
         class TaskList(BaseModel):
@@ -247,7 +245,7 @@ Include study evidence from search results.""")
         ])
         
         # Use structured output
-        from langchain_core.pydantic_v1 import BaseModel
+        from pydantic import BaseModel
         
         class TipList(BaseModel):
             pro_tips: List[ProTip]
@@ -278,7 +276,7 @@ Include study evidence from search results.""")
         ])
         
         # Use structured output
-        from langchain_core.pydantic_v1 import BaseModel
+        from pydantic import BaseModel
         
         class WarningList(BaseModel):
             warnings: List[str]

@@ -183,6 +183,25 @@ python standalone/calendar_sync.py --input output/tomorrow_plan.json --user your
 
 ## 🧪 Testing
 
+Test từng agent riêng lẻ:
+
+```bash
+# Test Agent A1 - Goal Clarifier (Interactive)
+python tests/test_goal_clarifier.py
+
+# Test Agent A2 - Domain Researcher (Mock search)
+python tests/test_domain_researcher.py
+
+# Test Agent A3 - Bio-Optimizer (Fake data)
+python tests/test_bio_optimizer.py
+
+# Test Agent A4 - JSON Formatter (Pure Python)
+python tests/test_json_formatter.py
+
+# Test Utilities
+python tests/test_validators.py
+```
+
 Chạy với mock search (không cần Tavily API):
 
 ```bash

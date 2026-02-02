@@ -25,7 +25,7 @@ An-AI-Agents-Hackathon/
 │   └── calendar_sync.py       # Google Calendar sync
 ├── output/                    # ✅ Output directory
 ├── main.py                   # ✅ Main orchestrator
-├── test_system.py            # ✅ Test script
+├── tests/                    # ✅ Individual agent tests
 ├── requirements.txt           # ✅ Dependencies
 ├── .env.example             # ✅ Environment template
 ├── README.md                # ✅ Documentation
@@ -85,7 +85,7 @@ An-AI-Agents-Hackathon/
 ### 6. Configuration
 - ✅ `requirements.txt` - All dependencies
 - ✅ `.env.example` - Environment variables template
-- ✅ `test_system.py` - Test script
+- ✅ Individual test files in `tests/` directory
 
 ### 7. Documentation
 - ✅ `README.md` - Comprehensive documentation
@@ -244,7 +244,7 @@ User Review & Edit
 ✅ **Multi-turn A1**: Hỏi 1-2 câu mỗi lượt, không overwhelm
 ✅ **Calendar Sync**: Standalone tool với OAuth
 ✅ **Documentation**: README.md đầy đủ với examples
-✅ **Test Script**: test_system.py để verify system
+✅ **Test Files**: Individual tests for each agent
 
 ## 📝 Các file đã tạo/tạo lại
 
@@ -266,7 +266,7 @@ User Review & Edit
 15. `requirements.txt`
 16. `.env.example`
 17. `README.md`
-18. `test_system.py`
+18. Test files in `tests/` directory
 19. `main.py` (đã tạo lại)
 20. `IMPLEMENTATION_SUMMARY.md`
 
@@ -294,7 +294,7 @@ User Review & Edit
 - [x] Update main.py
 - [x] Create .env.example file
 - [x] Create README.md comprehensive
-- [x] Create test_system.py
+- [x] Create individual test files
 - [x] Create IMPLEMENTATION_SUMMARY.md
 
 ## 🚀 Bước tiếp theo
@@ -313,7 +313,11 @@ User Review & Edit
 
 3. **Chạy test**:
    ```bash
-   python test_system.py
+   python tests/test_goal_clarifier.py
+   python tests/test_domain_researcher.py
+   python tests/test_bio_optimizer.py
+   python tests/test_json_formatter.py
+   python tests/test_validators.py
    ```
 
 4. **Chạy ATP**:
@@ -330,7 +334,7 @@ User Review & Edit
 - `DEVELOPMENT_v2.md` - Tài liệu kỹ thuật chi tiết
 - `DEVELOPMENT_v1.md` - Phiên bản cũ
 - `README.md` - Hướng dẫn sử dụng
-- `test_system.py` - Test examples
+- `tests/` - Individual agent test files
 
 ## 🎉 Tóm tắt
 
